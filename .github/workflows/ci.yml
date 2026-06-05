@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        if: hashFiles('ts/package.json') != ''
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        if: hashFiles('ts/package.json') != ''
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: ts/pnpm-lock.yaml
+      - name: Install TypeScript dependencies
+        if: hashFiles('ts/package.json') != ''
+        working-directory: ts
+        run: pnpm install --frozen-lockfile
+      - name: Verify TypeScript
+        if: hashFiles('ts/package.json') != ''
+        working-directory: ts
+        run: pnpm verify
+      - name: Build TypeScript
+        if: hashFiles('ts/package.json') != ''
+        working-directory: ts
+        run: pnpm build
+      - name: TypeScript publish dry run
+        if: hashFiles('ts/package.json') != ''
+        working-directory: ts
+        run: npm pack --dry-run
+      - uses: astral-sh/setup-uv@v5
+        if: hashFiles('py/pyproject.toml') != ''
+        with:
+          python-version: '3.12'
+      - name: Install Python dependencies
+        if: hashFiles('py/pyproject.toml') != ''
+        working-directory: py
+        run: uv sync --dev
+      - name: Check Python lint
+        if: hashFiles('py/pyproject.toml') != ''
+        working-directory: py
+        run: uv run --with ruff ruff check .
+      - name: Check Python format
+        if: hashFiles('py/pyproject.toml') != ''
+        working-directory: py
+        run: uv run --with ruff ruff format --check .
+      - name: Check Python types
+        if: hashFiles('py/pyproject.toml') != ''
+        working-directory: py
+        run: uv run --with ty ty check
+      - name: Test Python
+        if: hashFiles('py/pyproject.toml') != ''
+        working-directory: py
+        run: uv run --with pytest --with pytest-asyncio python -m pytest
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:latest \
+            detect --source /repo --no-git --redact

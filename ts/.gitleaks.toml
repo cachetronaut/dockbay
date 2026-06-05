@@ -1,0 +1,16 @@
+# gitleaks config — runs in CI. Extends the default ruleset.
+#
+# Run manually:
+#   gitleaks detect --config .gitleaks.toml --redact
+#   gitleaks protect --staged --config .gitleaks.toml
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "allowlist — docs and example/template files only"
+paths = [
+  '''\.gitleaks\.toml$''',
+  '''README\.md$''',
+  '''CONTRIBUTING\.md$''',
+]

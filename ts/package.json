@@ -1,0 +1,76 @@
+{
+  "name": "dockbay",
+  "version": "0.0.0",
+  "description": "Backend driver substrate for primitive store adapters.",
+  "keywords": [
+    "dockbay",
+    "drivers",
+    "transactions",
+    "agent-fabric",
+    "typescript",
+    "esm"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cachetronaut/dockbay.git"
+  },
+  "homepage": "https://github.com/cachetronaut/dockbay#readme",
+  "bugs": {
+    "url": "https://github.com/cachetronaut/dockbay/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./memory": {
+      "types": "./dist/memory.d.ts",
+      "import": "./dist/memory.js"
+    },
+    "./postgres": {
+      "types": "./dist/postgres.d.ts",
+      "import": "./dist/postgres.js"
+    },
+    "./convex": {
+      "types": "./dist/convex.d.ts",
+      "import": "./dist/convex.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "build": "tsup",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm verify && pnpm build",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "verify": "pnpm check && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.0.6",
+    "@types/pg": "^8.15.5",
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}

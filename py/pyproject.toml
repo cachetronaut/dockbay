@@ -1,0 +1,37 @@
+[project]
+name = "dockbay"
+version = "0.0.0"
+description = "Backend driver substrate for primitive store adapters."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["psycopg[binary]>=3.2", "psycopg-pool>=3.2"]
+
+[project.urls]
+Homepage = "https://github.com/cachetronaut/dockbay"
+Repository = "https://github.com/cachetronaut/dockbay"
+Issues = "https://github.com/cachetronaut/dockbay/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dockbay"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6", "ty>=0.0.1a8"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ty.environment]
+extra-paths = ["src"]
