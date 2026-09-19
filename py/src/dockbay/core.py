@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sqlite3
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, Protocol, TypeAlias
 
 from psycopg import AsyncConnection, sql
@@ -223,6 +225,134 @@ def create_postgres_driver(
     pool: AsyncConnectionPool, options: PostgresStoreDriverOptions | None = None
 ) -> PostgresStoreDriver:
     return PostgresStoreDriver(pool, options)
+
+
+@dataclass(frozen=True)
+class SQLiteStoreDriverOptions:
+    table: str = "store_driver_rows"
+
+
+class SQLiteStoreDriver:
+    backend = "sqlite"
+
+    def __init__(
+        self,
+        path: str | Path,
+        options: SQLiteStoreDriverOptions | None = None,
+    ):
+        self._path = str(path)
+        self._table = (options or SQLiteStoreDriverOptions()).table
+        if not _IDENTIFIER.match(self._table):
+            raise ValueError(f"Invalid SQLite store-driver table: {self._table}")
+        self._lock = asyncio.Lock()
+        self._conn: sqlite3.Connection | None = None
+
+    async def transaction(self, work: Callable[[Transaction], Awaitable[Any]]) -> Any:
+        async with self._lock:
+            conn = self._ensure_open()
+            txn = _SQLiteTransaction(conn, self._table)
+            try:
+                result = await work(txn)
+                conn.commit()
+                return result
+            except BaseException:
+                conn.rollback()
+                raise
+
+    async def close(self) -> None:
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    def _ensure_open(self) -> sqlite3.Connection:
+        if self._conn is None:
+            conn = sqlite3.connect(self._path, isolation_level="DEFERRED")
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute(
+                f"CREATE TABLE IF NOT EXISTS {self._table} ("
+                " table_name TEXT NOT NULL,"
+                " key_json TEXT NOT NULL,"
+                " key_json_data TEXT NOT NULL,"
+                " row_data TEXT NOT NULL,"
+                " value_data TEXT NOT NULL,"
+                " PRIMARY KEY (table_name, key_json)"
+                ")"
+            )
+            conn.commit()
+            self._conn = conn
+        return self._conn
+
+
+def create_sqlite_driver(
+    path: str | Path, options: SQLiteStoreDriverOptions | None = None
+) -> SQLiteStoreDriver:
+    return SQLiteStoreDriver(path, options)
+
+
+class _SQLiteTransaction:
+    def __init__(self, conn: sqlite3.Connection, table: str) -> None:
+        self._conn = conn
+        self._table = table
+
+    async def upsert(self, table: str, key: Row, row: Row) -> None:
+        key_json = key_of(key)
+        self._conn.execute(
+            f"INSERT INTO {self._table} (table_name, key_json, key_json_data, row_data, value_data)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT (table_name, key_json) DO UPDATE SET"
+            " key_json_data = excluded.key_json_data,"
+            " row_data = excluded.row_data,"
+            " value_data = excluded.value_data",
+            (table, key_json, json.dumps(key), json.dumps(row), json.dumps(row)),
+        )
+
+    async def get(self, table: str, key: Row) -> Row | None:
+        cursor = self._conn.execute(
+            f"SELECT row_data FROM {self._table} WHERE table_name = ? AND key_json = ?",
+            (table, key_of(key)),
+        )
+        result = cursor.fetchone()
+        return None if result is None else json.loads(result[0])
+
+    async def scan(
+        self, table: str, prefix: Row, opts: ScanOptions | None = None
+    ) -> AsyncIterator[Row]:
+        options = opts or ScanOptions()
+        cursor = self._conn.execute(
+            f"SELECT key_json_data, row_data FROM {self._table}"
+            " WHERE table_name = ? ORDER BY key_json",
+            (table,),
+        )
+        emitted = 0
+        for key_json_data, row_data in cursor.fetchall():
+            entry_key = json.loads(key_json_data)
+            if not matches_prefix(entry_key, prefix):
+                continue
+            if options.after is not None and compare_rows(entry_key, options.after) <= 0:
+                continue
+            if options.limit is not None and emitted >= options.limit:
+                break
+            emitted += 1
+            yield json.loads(row_data)
+
+    async def compare_and_apply(self, table: str, key: Row, expect: Any, next_value: Any) -> bool:
+        key_json = key_of(key)
+        row = next_value if isinstance(next_value, dict) else {"value": next_value}
+        if expect is None:
+            cursor = self._conn.execute(
+                f"INSERT OR IGNORE INTO {self._table}"
+                " (table_name, key_json, key_json_data, row_data, value_data)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (table, key_json, json.dumps(key), json.dumps(row), json.dumps(next_value)),
+            )
+            return cursor.rowcount == 1
+        cursor = self._conn.execute(
+            f"UPDATE {self._table} SET row_data = ?, value_data = ?"
+            " WHERE table_name = ? AND key_json = ? AND value_data = ?",
+            (json.dumps(row), json.dumps(next_value), table, key_json, json.dumps(expect)),
+        )
+        return cursor.rowcount == 1
 
 
 @dataclass(frozen=True)
