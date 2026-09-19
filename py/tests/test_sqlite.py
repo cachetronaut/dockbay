@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import tempfile
 from pathlib import Path
 
-from dockbay import SQLiteStoreDriverOptions, create_sqlite_driver
+import pytest
+
+from dockbay import ScanOptions, SQLiteStoreDriverOptions, create_sqlite_driver
 
 
 def test_sqlite_driver_upserts_idempotently_and_gets_rows() -> None:
@@ -67,8 +70,6 @@ def test_sqlite_driver_scans_with_after_and_limit() -> None:
 
 
 async def _assert_sqlite_driver_scans_with_after_and_limit() -> None:
-    from dockbay import ScanOptions
-
     with tempfile.TemporaryDirectory() as tmp:
         driver = create_sqlite_driver(Path(tmp) / "test.db")
         try:
@@ -95,30 +96,33 @@ async def _assert_sqlite_driver_scans_with_after_and_limit() -> None:
             await driver.close()
 
 
-def test_sqlite_driver_compare_and_apply_admits_one_winner() -> None:
-    asyncio.run(_assert_sqlite_driver_compare_and_apply_admits_one_winner())
+def test_sqlite_driver_compare_and_apply_admits_one_winner_under_contention() -> None:
+    asyncio.run(_assert_sqlite_driver_compare_and_apply_admits_one_winner_under_contention())
 
 
-async def _assert_sqlite_driver_compare_and_apply_admits_one_winner() -> None:
+async def _assert_sqlite_driver_compare_and_apply_admits_one_winner_under_contention() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         driver = create_sqlite_driver(Path(tmp) / "test.db")
         try:
-            await driver.transaction(
-                lambda txn: txn.compare_and_apply(
+
+            async def seed(txn) -> bool:
+                return await txn.compare_and_apply(
                     "locks", {"id": "budget"}, None, {"owner": "seed"}
                 )
-            )
 
-            results = []
-            for index in range(10):
-                result = await driver.transaction(
-                    lambda txn, i=index: txn.compare_and_apply(
-                        "locks", {"id": "budget"}, {"owner": "seed"}, {"owner": i}
+            await driver.transaction(seed)
+
+            async def attempt(index: int) -> bool:
+                async def work(txn) -> bool:
+                    return await txn.compare_and_apply(
+                        "locks", {"id": "budget"}, {"owner": "seed"}, {"owner": index}
                     )
-                )
-                results.append(result)
 
-            assert len([r for r in results if r]) == 1
+                return await driver.transaction(work)
+
+            results = await asyncio.gather(*(attempt(index) for index in range(10)))
+
+            assert len([result for result in results if result]) == 1
         finally:
             await driver.close()
 
@@ -149,6 +153,57 @@ async def _assert_sqlite_driver_compare_and_apply_insert_only_if_absent() -> Non
 
             row = await driver.transaction(verify)
             assert row == {"owner": "first"}
+        finally:
+            await driver.close()
+
+
+def test_sqlite_driver_compare_and_apply_with_reordered_keys() -> None:
+    asyncio.run(_assert_sqlite_driver_compare_and_apply_with_reordered_keys())
+
+
+async def _assert_sqlite_driver_compare_and_apply_with_reordered_keys() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        driver = create_sqlite_driver(Path(tmp) / "test.db")
+        try:
+            await driver.transaction(
+                lambda txn: txn.compare_and_apply("state", {"id": "s1"}, None, {"b": 1, "a": 2})
+            )
+
+            applied = await driver.transaction(
+                lambda txn: txn.compare_and_apply("state", {"id": "s1"}, {"a": 2, "b": 1}, {"c": 3})
+            )
+            assert applied is True
+
+            async def verify(txn) -> dict[str, object] | None:
+                return await txn.get("state", {"id": "s1"})
+
+            row = await driver.transaction(verify)
+            assert row == {"c": 3}
+        finally:
+            await driver.close()
+
+
+def test_sqlite_driver_compare_and_apply_after_get_round_trip() -> None:
+    asyncio.run(_assert_sqlite_driver_compare_and_apply_after_get_round_trip())
+
+
+async def _assert_sqlite_driver_compare_and_apply_after_get_round_trip() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        driver = create_sqlite_driver(Path(tmp) / "test.db")
+        try:
+            await driver.transaction(
+                lambda txn: txn.upsert("state", {"id": "s1"}, {"z": 1, "a": 2})
+            )
+
+            async def get_then_cas(txn) -> bool:
+                current = await txn.get("state", {"id": "s1"})
+                assert current is not None
+                return await txn.compare_and_apply(
+                    "state", {"id": "s1"}, current, {"updated": True}
+                )
+
+            applied = await driver.transaction(get_then_cas)
+            assert applied is True
         finally:
             await driver.close()
 
@@ -185,9 +240,8 @@ def test_sqlite_driver_custom_table_name() -> None:
 
 async def _assert_sqlite_driver_custom_table_name() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        driver = create_sqlite_driver(
-            Path(tmp) / "test.db", SQLiteStoreDriverOptions(table="custom_rows")
-        )
+        db_path = Path(tmp) / "test.db"
+        driver = create_sqlite_driver(db_path, SQLiteStoreDriverOptions(table="custom_rows"))
         try:
             await driver.transaction(
                 lambda txn: txn.upsert("events", {"id": "e1"}, {"type": "test"})
@@ -198,15 +252,28 @@ async def _assert_sqlite_driver_custom_table_name() -> None:
 
             row = await driver.transaction(verify)
             assert row == {"type": "test"}
+
+            conn = sqlite3.connect(db_path)
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='custom_rows'"
+            )
+            assert cursor.fetchone() is not None, "custom_rows table must exist in SQLite"
+            conn.close()
         finally:
             await driver.close()
 
 
 def test_sqlite_driver_rejects_invalid_table_name() -> None:
-    import pytest
-
     with pytest.raises(ValueError, match="Invalid SQLite store-driver table"):
         create_sqlite_driver(":memory:", SQLiteStoreDriverOptions(table="bad;table"))
+
+
+def test_sqlite_driver_rejects_reserved_word_table_name() -> None:
+    with pytest.raises(ValueError, match="SQLite reserved word"):
+        create_sqlite_driver(":memory:", SQLiteStoreDriverOptions(table="select"))
+
+    with pytest.raises(ValueError, match="SQLite reserved word"):
+        create_sqlite_driver(":memory:", SQLiteStoreDriverOptions(table="SELECT"))
 
 
 def test_sqlite_driver_transaction_rolls_back_on_error() -> None:
@@ -217,7 +284,6 @@ async def _assert_sqlite_driver_transaction_rolls_back_on_error() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         driver = create_sqlite_driver(Path(tmp) / "test.db")
         try:
-            import pytest
 
             async def failing_work(txn) -> None:
                 await txn.upsert("events", {"id": "e1"}, {"type": "should_not_persist"})
@@ -233,3 +299,17 @@ async def _assert_sqlite_driver_transaction_rolls_back_on_error() -> None:
             assert row is None
         finally:
             await driver.close()
+
+
+def test_sqlite_driver_close_then_transaction_raises() -> None:
+    asyncio.run(_assert_sqlite_driver_close_then_transaction_raises())
+
+
+async def _assert_sqlite_driver_close_then_transaction_raises() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        driver = create_sqlite_driver(Path(tmp) / "test.db")
+        await driver.transaction(lambda txn: txn.upsert("events", {"id": "e1"}, {"type": "test"}))
+        await driver.close()
+
+        with pytest.raises(RuntimeError, match="Store driver is closed"):
+            await driver.transaction(lambda txn: txn.get("events", {"id": "e1"}))
