@@ -9,7 +9,8 @@
       "@dockbay/core": ["packages/core/src/index.ts"],
       "@dockbay/convex": ["packages/convex/src/index.ts"],
       "@dockbay/memory": ["packages/memory/src/index.ts"],
-      "@dockbay/postgres": ["packages/postgres/src/index.ts"]
+      "@dockbay/postgres": ["packages/postgres/src/index.ts"],
+      "@dockbay/sqlite": ["packages/sqlite/src/index.ts"]
     },
     "strict": true,
     "noUncheckedIndexedAccess": true,

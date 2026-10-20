@@ -6,6 +6,7 @@ export default defineConfig({
     convex: "packages/convex/src/index.ts",
     memory: "packages/memory/src/index.ts",
     postgres: "packages/postgres/src/index.ts",
+    sqlite: "packages/sqlite/src/index.ts",
   },
   format: "esm",
   dts: true,
