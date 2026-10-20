@@ -35,6 +35,10 @@
       "types": "./dist/postgres.d.ts",
       "import": "./dist/postgres.js"
     },
+    "./sqlite": {
+      "types": "./dist/sqlite.d.ts",
+      "import": "./dist/sqlite.js"
+    },
     "./convex": {
       "types": "./dist/convex.d.ts",
       "import": "./dist/convex.js"
@@ -52,6 +56,15 @@
     "pnpm": ">=9.0.0"
   },
   "packageManager": "pnpm@9.12.0",
+  "pnpm": {
+    "supportedArchitectures": {
+      "os": [
+        "current",
+        "darwin",
+        "linux"
+      ]
+    }
+  },
   "scripts": {
     "build": "tsup",
     "prepack": "pnpm build",

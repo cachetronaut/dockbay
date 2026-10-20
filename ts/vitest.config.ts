@@ -10,6 +10,7 @@ export default defineConfig({
       "@dockbay/postgres": fileURLToPath(
         new URL("packages/postgres/src/index.ts", import.meta.url),
       ),
+      "@dockbay/sqlite": fileURLToPath(new URL("packages/sqlite/src/index.ts", import.meta.url)),
     },
   },
 });
