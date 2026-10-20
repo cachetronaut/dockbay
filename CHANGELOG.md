@@ -9,6 +9,10 @@ keywords: [changelog, releases, sqlite, typescript, python]
 
 ## Unreleased
 
-- Added a TypeScript SQLite store driver with Node and Bun adapters and shared connection support.
 - Added SQLite store driver (`SQLiteStoreDriver`) for the Python package.
 - Consolidated TypeScript and Python implementations into one primitive repository.
+
+## 0.0.1
+
+- Added a TypeScript SQLite store driver with Node and Bun adapters and shared connection support.
+- Fixed npm release metadata quoting and bumped the TypeScript package version so the SQLite export can be published.
