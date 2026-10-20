@@ -77,11 +77,15 @@ export class SQLiteStoreDriver implements StoreDriver {
           txn.finish();
         }
       } catch (error) {
-        if (savepoint === undefined) {
-          connection.exec("ROLLBACK");
-        } else {
-          connection.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
-          connection.exec(`RELEASE SAVEPOINT ${savepoint}`);
+        try {
+          if (savepoint === undefined) {
+            connection.exec("ROLLBACK");
+          } else {
+            connection.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+            connection.exec(`RELEASE SAVEPOINT ${savepoint}`);
+          }
+        } catch {
+          // SQLite may have already aborted the transaction; preserve the original error.
         }
         throw error;
       }

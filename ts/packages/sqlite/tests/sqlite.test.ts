@@ -10,21 +10,54 @@ const { describe, expect, it } = isBun
   ? ((await import(bunTest)) as typeof import("vitest"))
   : await import("vitest");
 
-async function openDatabase(): Promise<SQLiteDatabase> {
+async function openDatabase(path = ":memory:"): Promise<SQLiteDatabase> {
   if (isBun) {
     const moduleName = "bun:sqlite";
     const { Database } = (await import(moduleName)) as {
       Database: new (path: string) => SQLiteDatabase;
     };
-    return new Database(":memory:");
+    return new Database(path);
   }
   const { DatabaseSync } = createRequire(import.meta.url)(
     "node:sqlite",
   ) as typeof import("node:sqlite");
-  return new DatabaseSync(":memory:");
+  return new DatabaseSync(path);
 }
 
 describe("SQLite store driver", () => {
+  it("preserves the original SQLite error after an automatic rollback", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "dockbay-sqlite-"));
+    const database = await openDatabase(join(directory, "rows.db"));
+    try {
+      for (const source of [join(directory, "rows.db"), database]) {
+        const driver = createSQLiteDriver(source);
+        try {
+          await driver.transaction(async () => undefined);
+          database.exec(`CREATE TRIGGER IF NOT EXISTS reject_write BEFORE INSERT ON store_driver_rows
+            BEGIN SELECT RAISE(ROLLBACK, 'transaction aborted'); END`);
+          let originalError: unknown;
+          const result = await driver
+            .transaction(async (txn) => {
+              try {
+                await txn.upsert("items", { id: 1 }, { count: 1 });
+              } catch (error) {
+                originalError = error;
+                throw error;
+              }
+            })
+            .catch((error: unknown) => error);
+          expect(originalError).toMatchObject({ message: "transaction aborted" });
+          expect(result).toBe(originalError);
+        } finally {
+          await driver.close();
+        }
+      }
+    } finally {
+      database.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("round-trips rows and scans a namespace in key order with pagination", async () => {
     const directory = await mkdtemp(join(tmpdir(), "dockbay-sqlite-"));
     const path = join(directory, "rows.db");
