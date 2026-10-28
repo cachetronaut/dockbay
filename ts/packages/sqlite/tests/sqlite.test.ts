@@ -2,7 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSQLiteDriver, type SQLiteDatabase } from "../src/index.js";
+import {
+  createSQLiteDriver,
+  type SQLiteDatabase,
+  type SQLiteSyncTransaction,
+} from "../src/index.js";
 
 const isBun = "Bun" in globalThis;
 const bunTest = "bun:test";
@@ -25,6 +29,105 @@ async function openDatabase(path = ":memory:"): Promise<SQLiteDatabase> {
 }
 
 describe("SQLite store driver", () => {
+  it("runs synchronous row operations and migration reads on a supplied connection", async () => {
+    const database = await openDatabase();
+    const driver = createSQLiteDriver(database);
+    try {
+      database.exec(
+        "CREATE TABLE legacy_items (id TEXT, count INTEGER); INSERT INTO legacy_items VALUES ('one', 1)",
+      );
+      driver.transactionSync((transaction) => {
+        expect(transaction.readTable("missing_items")).toBeUndefined();
+        expect(transaction.readTable("legacy_items")).toEqual([{ id: "one", count: 1 }]);
+        expect(() => transaction.readTable("legacy_items; DROP TABLE legacy_items")).toThrow(
+          "Invalid SQLite table",
+        );
+        transaction.upsert("items", { id: "two" }, { count: 2 });
+        expect(transaction.compareAndApply("items", { id: "one" }, undefined, { count: 1 })).toBe(
+          true,
+        );
+        expect(
+          transaction.compareAndApply("items", { id: "one" }, { count: 0 }, { count: 9 }),
+        ).toBe(false);
+        expect(transaction.scan("items", {})).toEqual([{ count: 1 }, { count: 2 }]);
+        expect(transaction.scan("items", {}, { after: { id: "one" }, limit: 1 })).toEqual([
+          { count: 2 },
+        ]);
+        expect(transaction.delete("items", { id: "one" })).toBe(true);
+        expect(transaction.delete("items", { id: "one" })).toBe(false);
+        expect(transaction.get("items", { id: "one" })).toBeUndefined();
+      });
+      await driver.transaction(async (transaction) => {
+        expect("transaction" in transaction).toBe(false);
+        expect(await transaction.get("items", { id: "two" })).toEqual({ count: 2 });
+      });
+      await driver.close();
+      expect(database.prepare("SELECT * FROM legacy_items").all()).toEqual([
+        { id: "one", count: 1 },
+      ]);
+      expect(() => driver.transactionSync(() => undefined)).toThrow("closed");
+    } finally {
+      await driver.close();
+      database.close();
+    }
+  });
+
+  it("rolls synchronous work back with its callback or surrounding transaction", async () => {
+    const database = await openDatabase();
+    const driver = createSQLiteDriver(database);
+    let escaped: SQLiteSyncTransaction | undefined;
+    try {
+      driver.transactionSync((transaction) => {
+        escaped = transaction;
+      });
+      expect(() => escaped?.get("items", {})).toThrow("finished");
+      expect(() =>
+        driver.transactionSync((transaction) => {
+          transaction.upsert("items", { id: "failed" }, { count: 1 });
+          throw new Error("abort");
+        }),
+      ).toThrow("abort");
+      database.exec("BEGIN");
+      driver.transactionSync((transaction) => {
+        transaction.upsert("items", { id: "outer" }, { count: 2 });
+        expect(transaction.get("items", { id: "failed" })).toBeUndefined();
+      });
+      database.exec("ROLLBACK");
+      expect(driver.transactionSync((transaction) => transaction.scan("items", {}))).toEqual([]);
+    } finally {
+      await driver.close();
+      database.close();
+    }
+  });
+
+  it("rejects asynchronous callbacks and overlapping work in synchronous transactions", async () => {
+    const database = await openDatabase();
+    const driver = createSQLiteDriver(database);
+    try {
+      const promiseCallback = ((transaction: SQLiteSyncTransaction) => {
+        transaction.upsert("items", {}, { count: 1 });
+        return Promise.resolve();
+      }) as unknown as (transaction: SQLiteSyncTransaction) => void;
+      expect(() => driver.transactionSync(promiseCallback)).toThrow("Promise");
+      expect(driver.transactionSync((transaction) => transaction.scan("items", {}))).toEqual([]);
+      const queued = driver.transaction(async () => undefined);
+      expect(() => driver.transactionSync(() => undefined)).toThrow("queued or active");
+      await queued;
+      let rejected: Promise<void> | undefined;
+      driver.transactionSync(() => {
+        expect(() => driver.transactionSync(() => undefined)).toThrow("queued or active");
+        rejected = driver.transaction(async () => undefined);
+      });
+      await expect(rejected).rejects.toThrow("Synchronous store driver transaction active");
+      const owned = createSQLiteDriver(":memory:");
+      expect(() => owned.transactionSync(() => undefined)).toThrow("supplied SQLite connection");
+      await owned.close();
+    } finally {
+      await driver.close();
+      database.close();
+    }
+  });
+
   it("preserves the original SQLite error after an automatic rollback", async () => {
     const directory = await mkdtemp(join(tmpdir(), "dockbay-sqlite-"));
     const database = await openDatabase(join(directory, "rows.db"));
