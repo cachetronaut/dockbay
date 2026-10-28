@@ -1,5 +1,5 @@
-import type { Row, ScanOptions, StoreDriver, Transaction } from "@dockbay/core";
-import { compareRows, keyOf, matchesPrefix } from "@dockbay/core";
+import type { Row, ScanOptions, StoreDriver, Transaction } from "../../core/src/index.js";
+import { compareRows, keyOf, matchesPrefix } from "../../core/src/index.js";
 
 type Table = Map<string, { key: Row; row: Row; value: unknown }>;
 

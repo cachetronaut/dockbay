@@ -1,0 +1,16 @@
+{
+  "name": "dockbay",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Bun source entry points for immutable Git dependencies.",
+  "license": "MIT",
+  "exports": {
+    ".": { "types": "./ts/packages/core/src/index.ts", "bun": "./ts/packages/core/src/index.ts" },
+    "./sqlite": { "types": "./ts/packages/sqlite/src/index.ts", "bun": "./ts/packages/sqlite/src/index.ts" },
+    "./memory": { "types": "./ts/packages/memory/src/index.ts", "bun": "./ts/packages/memory/src/index.ts" },
+    "./postgres": { "types": "./ts/packages/postgres/src/index.ts", "bun": "./ts/packages/postgres/src/index.ts" },
+    "./convex": { "types": "./ts/packages/convex/src/index.ts", "bun": "./ts/packages/convex/src/index.ts" }
+  },
+  "dependencies": { "pg": "^8.16.3" }
+}

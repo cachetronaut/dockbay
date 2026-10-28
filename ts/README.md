@@ -69,6 +69,43 @@ and null values read back as `{ value: next }` and compare against the raw value
 JSON encoding omits undefined object properties; a top-level undefined CAS value
 uses an empty `value_data` marker and reads back as `{}`.
 
+### Synchronous transactions
+
+For an already-open synchronous SQLite connection, `transactionSync` returns the
+callback result directly. It uses the same savepoint and row encoding as the
+asynchronous API, so writes roll back with a surrounding database transaction.
+
+```ts
+const count = driver.transactionSync((transaction) => {
+  transaction.upsert("items", { id: "one" }, { count: 1 });
+  return transaction.get("items", { id: "one" })?.count;
+});
+```
+
+The typed synchronous transaction supports `get`, `upsert`, `scan` returning an
+array, `compareAndApply`, and `delete` returning whether a key was removed.
+`readTable(name)` reads rows from an existing physical SQLite table for migrations;
+an absent table returns `undefined`. Names are validated and quoted, and table
+reads and logical writes share the same savepoint.
+
+Synchronous callbacks cannot return promises or overlap another transaction on
+the same driver. Async functions are rejected before execution; a returned promise
+rolls back the callback's synchronous writes. Keep callbacks and transaction objects
+within their lifetime. Different drivers sharing a connection still require caller
+coordination. Filename-owned connections use the asynchronous API.
+
+### Bun Git dependencies
+
+The repository root exposes TypeScript sources for Bun without lifecycle scripts
+or a local build. Pin an immutable commit when installing an unreleased change:
+
+```sh
+bun add github:cachetronaut/dockbay#<full-commit-sha>
+```
+
+The npm package continues to publish built ESM and declarations from `ts/` for
+Node and Bun. The root manifest is private and provides Bun-only runtime exports.
+
 ## Development
 
 Run from `ts/`:

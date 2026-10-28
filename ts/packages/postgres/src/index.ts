@@ -1,6 +1,6 @@
-import type { Row, ScanOptions, StoreDriver, Transaction } from "@dockbay/core";
-import { compareRows, keyOf } from "@dockbay/core";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
+import type { Row, ScanOptions, StoreDriver, Transaction } from "../../core/src/index.js";
+import { compareRows, keyOf } from "../../core/src/index.js";
 
 export interface PostgresStoreDriverOptions {
   readonly table?: string;
