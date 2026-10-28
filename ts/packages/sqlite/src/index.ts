@@ -344,7 +344,7 @@ class SQLiteRows implements SQLiteSyncTransaction {
     if (!IDENTIFIER.test(table)) throw new Error(`Invalid SQLite table: ${table}`);
     if (
       !this.connection.get(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ? COLLATE NOCASE",
         table,
       )
     )

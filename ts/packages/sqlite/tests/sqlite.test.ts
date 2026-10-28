@@ -72,6 +72,22 @@ describe("SQLite store driver", () => {
     }
   });
 
+  it("reads existing physical tables regardless of identifier case", async () => {
+    const database = await openDatabase();
+    const driver = createSQLiteDriver(database);
+    try {
+      database.exec("CREATE TABLE Legacy_Items (id TEXT); INSERT INTO Legacy_Items VALUES ('one')");
+      for (const table of ["legacy_items", "LEGACY_ITEMS"]) {
+        expect(driver.transactionSync((transaction) => transaction.readTable(table))).toEqual([
+          { id: "one" },
+        ]);
+      }
+    } finally {
+      await driver.close();
+      database.close();
+    }
+  });
+
   it("rolls synchronous work back with its callback or surrounding transaction", async () => {
     const database = await openDatabase();
     const driver = createSQLiteDriver(database);
