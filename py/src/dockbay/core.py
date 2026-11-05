@@ -272,6 +272,19 @@ class SQLiteStoreDriver:
                 self._conn.close()
                 self._conn = None
 
+    async def with_connection(
+        self, work: Callable[[Transaction, sqlite3.Connection], Awaitable[Any]]
+    ) -> Any:
+        """Run a projection in its transaction; do not retain, commit or close the connection."""
+
+        async def connected(transaction: Transaction) -> Any:
+            assert self._conn is not None
+            if not self._conn.in_transaction:
+                self._conn.execute("BEGIN")
+            return await work(transaction, self._conn)
+
+        return await self.transaction(connected)
+
     def _ensure_open(self) -> sqlite3.Connection:
         if self._conn is None:
             conn = sqlite3.connect(self._path, isolation_level="DEFERRED")

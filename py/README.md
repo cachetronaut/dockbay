@@ -16,6 +16,21 @@ pip install dockbay
 import dockbay
 ```
 
+## Read-only snapshots and SQLite projections
+
+Use `dockbay.ReadOnlySQLiteStoreDriver(path)` to read an existing database without
+initializing it. Missing, empty, and non-DockBay databases raise
+`ReadOnlyStoreUnavailable`. Each transaction starts a SQLite read snapshot, and
+logical writes raise `PermissionError`. The connection also uses SQLite read-only
+mode and `query_only`.
+
+`await driver.with_connection(work)` calls `await work(transaction, connection)`
+under the driver's transaction lock. Logical row writes and application SQL use
+the same connection and commit or roll back together. The caller must not retain,
+commit, roll back, or close the supplied connection. Keep the driver and callbacks
+on the same owning thread. Read-only drivers support the callback for queries;
+they retain the same write restrictions.
+
 ## Development
 
 Run from `py/`:
