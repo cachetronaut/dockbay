@@ -37,10 +37,11 @@ class ReadOnlySQLiteStoreDriver(SQLiteStoreDriver):
             database = Path(self._path).resolve()
             if not database.is_file() or database.stat().st_size == 0:
                 raise ReadOnlyStoreUnavailable("read-only access requires an existing database")
-            connection = sqlite3.connect(
-                database.as_uri() + "?mode=ro", uri=True, isolation_level="DEFERRED"
-            )
+            connection = None
             try:
+                connection = sqlite3.connect(
+                    database.as_uri() + "?mode=ro", uri=True, isolation_level="DEFERRED"
+                )
                 connection.execute("PRAGMA query_only=ON")
                 table = connection.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -48,8 +49,13 @@ class ReadOnlySQLiteStoreDriver(SQLiteStoreDriver):
                 ).fetchone()
                 if table is None:
                     raise ReadOnlyStoreUnavailable("read-only access requires a DockBay database")
-            except BaseException:
-                connection.close()
+            except BaseException as error:
+                if connection is not None:
+                    connection.close()
+                if isinstance(error, sqlite3.DatabaseError):
+                    raise ReadOnlyStoreUnavailable(
+                        "read-only access requires an available DockBay database"
+                    ) from error
                 raise
             self._conn = connection
         return self._conn

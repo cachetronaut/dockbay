@@ -279,6 +279,8 @@ class SQLiteStoreDriver:
 
         async def connected(transaction: Transaction) -> Any:
             assert self._conn is not None
+            if not self._conn.in_transaction:
+                self._conn.execute("BEGIN")
             return await work(transaction, self._conn)
 
         return await self.transaction(connected)
