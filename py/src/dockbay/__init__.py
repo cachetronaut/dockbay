@@ -25,6 +25,7 @@ from .core import (
     key_of,
     matches_prefix,
 )
+from .read_only import ReadOnlySQLiteStoreDriver, ReadOnlyStoreUnavailable
 
 __all__ = [
     "ConvexOperationContext",
@@ -40,6 +41,8 @@ __all__ = [
     "PostgresStoreDriver",
     "PostgresStoreDriverOptions",
     "Row",
+    "ReadOnlySQLiteStoreDriver",
+    "ReadOnlyStoreUnavailable",
     "SQLiteStoreDriver",
     "SQLiteStoreDriverOptions",
     "ScanOptions",
