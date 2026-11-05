@@ -49,6 +49,10 @@ class ReadOnlySQLiteStoreDriver(SQLiteStoreDriver):
                 ).fetchone()
                 if table is None:
                     raise ReadOnlyStoreUnavailable("read-only access requires a DockBay database")
+                connection.execute(
+                    "SELECT table_name, key_json, key_json_data, row_data, value_data "
+                    f"FROM {self._quoted_table} LIMIT 0"
+                )
             except BaseException as error:
                 if connection is not None:
                     connection.close()
@@ -66,4 +70,12 @@ class ReadOnlySQLiteStoreDriver(SQLiteStoreDriver):
             self._conn.execute("BEGIN")
             return await work(ReadOnlyTransaction(transaction))
 
-        return await super().transaction(read)
+        try:
+            return await super().transaction(read)
+        except sqlite3.DatabaseError as error:
+            code = getattr(error, "sqlite_errorcode", 0) & 0xFF
+            if code in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB):
+                raise ReadOnlyStoreUnavailable(
+                    "read-only access requires an available DockBay database"
+                ) from error
+            raise
